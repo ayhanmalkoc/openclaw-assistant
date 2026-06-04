@@ -557,45 +557,20 @@ def approve_latest_openclaw(timeout):
     last_error = None
     approved_stdout = ""
     approved_stderr = ""
+    approved_count = 0
     attempts = max(1, min(int(timeout * 2), 120))
     for _ in range(attempts):
         list_proc = run_command("openclaw devices list --json", timeout)
         if list_proc.returncode != 0:
-            return list_proc
+            return list_proc if approved_count == 0 else subprocess.CompletedProcess(
+                args="openclaw devices approve --latest",
+                returncode=0,
+                stdout=approved_stdout,
+                stderr=approved_stderr + (list_proc.stderr or ""),
+            )
         try:
             payload = json.loads(list_proc.stdout or "{}")
             pending = payload.get("pending") or []
-            if not pending:
-                last_error = "No pending OpenClaw pairing request.\n"
-                time.sleep(0.5)
-                continue
-            operator_pending = [
-                item for item in pending
-                if item.get("role") == "operator"
-                or "operator" in (item.get("roles") or [])
-                or any(str(scope).startswith("operator.") for scope in (item.get("scopes") or []))
-            ]
-            if not operator_pending:
-                selected = max(pending, key=lambda item: int(item.get("ts") or 0))
-                request_id = str(selected.get("requestId") or "").strip()
-                if not request_id:
-                    last_error = "Latest OpenClaw pairing request has no requestId.\n"
-                    time.sleep(0.5)
-                    continue
-                approve_proc = run_command(f"openclaw devices approve {request_id}", timeout)
-                if approve_proc.returncode == 0:
-                    approved_stdout += approve_proc.stdout or ""
-                    approved_stderr += approve_proc.stderr or ""
-                    last_error = "Approved a preliminary OpenClaw node request; waiting for operator request.\n"
-                    time.sleep(0.5)
-                    continue
-                if "unknown requestId" in ((approve_proc.stderr or "") + (approve_proc.stdout or "")):
-                    last_error = approve_proc.stderr or approve_proc.stdout or "OpenClaw pairing request disappeared before approval.\n"
-                    time.sleep(0.4)
-                    continue
-                return approve_proc
-            selected = max(operator_pending, key=lambda item: int(item.get("ts") or 0))
-            request_id = str(selected.get("requestId") or "").strip()
         except Exception as exc:
             return subprocess.CompletedProcess(
                 args="openclaw devices approve --latest",
@@ -603,32 +578,54 @@ def approve_latest_openclaw(timeout):
                 stdout=list_proc.stdout,
                 stderr=f"Could not parse OpenClaw pending device list: {exc}\n",
             )
+        if not pending:
+            if approved_count > 0:
+                return subprocess.CompletedProcess(
+                    args="openclaw devices approve --latest",
+                    returncode=0,
+                    stdout=approved_stdout or f"Approved {approved_count} OpenClaw pairing request(s).\n",
+                    stderr=approved_stderr,
+                )
+            last_error = "No pending OpenClaw pairing request.\n"
+            time.sleep(0.5)
+            continue
+
+        def pending_priority(item):
+            role = str(item.get("role") or "")
+            roles = [str(value) for value in (item.get("roles") or [])]
+            scopes = [str(value) for value in (item.get("scopes") or [])]
+            is_operator = role == "operator" or "operator" in roles or any(scope.startswith("operator.") for scope in scopes)
+            return (1 if is_operator else 0, -int(item.get("ts") or 0))
+
+        selected = sorted(pending, key=pending_priority)[0]
+        request_id = str(selected.get("requestId") or "").strip()
         if not request_id:
-            return subprocess.CompletedProcess(
-                args="openclaw devices approve --latest",
-                returncode=1,
-                stdout=list_proc.stdout,
-                stderr="Latest OpenClaw pairing request has no requestId.\n",
-            )
+            last_error = "Latest OpenClaw pairing request has no requestId.\n"
+            time.sleep(0.5)
+            continue
         approve_proc = run_command(f"openclaw devices approve {request_id}", timeout)
+        combined = (approve_proc.stderr or "") + (approve_proc.stdout or "")
         if approve_proc.returncode == 0:
-            return subprocess.CompletedProcess(
-                args="openclaw devices approve --latest",
-                returncode=0,
-                stdout=approved_stdout + (approve_proc.stdout or ""),
-                stderr=approved_stderr + (approve_proc.stderr or ""),
-            )
-        if "unknown requestId" not in ((approve_proc.stderr or "") + (approve_proc.stdout or "")):
-            return approve_proc
-        last_error = approve_proc.stderr or approve_proc.stdout or "OpenClaw pairing request disappeared before approval.\n"
-        time.sleep(0.4)
+            approved_count += 1
+            approved_stdout += approve_proc.stdout or ""
+            approved_stderr += approve_proc.stderr or ""
+            time.sleep(0.5)
+            continue
+        if "unknown requestId" in combined:
+            last_error = approve_proc.stderr or approve_proc.stdout or "OpenClaw pairing request disappeared before approval.\n"
+            time.sleep(0.4)
+            continue
+        if "role-management-requires-admin" in combined and approved_count > 0:
+            last_error = approve_proc.stderr or approve_proc.stdout
+            time.sleep(0.5)
+            continue
+        return approve_proc
     return subprocess.CompletedProcess(
         args="openclaw devices approve --latest",
-        returncode=1,
-        stdout="",
-        stderr=last_error or "No pending OpenClaw operator pairing request.\n",
+        returncode=0 if approved_count > 0 else 1,
+        stdout=approved_stdout,
+        stderr=approved_stderr if approved_count > 0 else (last_error or "No pending OpenClaw pairing request.\n"),
     )
-
 class TerminalHandler(BaseHTTPRequestHandler):
     server_version = "AgentVoiceTerminal/1"
 

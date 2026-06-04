@@ -435,6 +435,7 @@ fun SetupGuideScreen(
 
 @Composable
 private fun WelcomeStep(onNext: () -> Unit) {
+
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -1130,6 +1131,7 @@ private fun FinalCheckStep(
         }
     }
 
+
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(
             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -1356,12 +1358,14 @@ private fun HermesFinalStep(onFinish: () -> Unit) {
     var testStatus by remember { mutableStateOf<String?>(null) }
     var replyPreviews by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var verifiedBackendIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var autoTestStarted by remember { mutableStateOf(false) }
     val verified = requiredBackendIds.isNotEmpty() && verifiedBackendIds.containsAll(requiredBackendIds)
 
     LaunchedEffect(requiredBackendIds) {
         testStatus = null
         replyPreviews = emptyMap()
         verifiedBackendIds = emptySet()
+        autoTestStarted = false
     }
 
     fun runEndToEndTest() {
@@ -1422,6 +1426,13 @@ private fun HermesFinalStep(onFinish: () -> Unit) {
         }
     }
 
+
+    LaunchedEffect(isGatewayConnected, gatewayChatReady, requiredBackendIds, primaryBackend) {
+        if (!autoTestStarted && !isTesting && !verified && primaryBackend != null && requiredBackendIds.isNotEmpty() && (isGatewayConnected || gatewayChatReady)) {
+            autoTestStarted = true
+            runEndToEndTest()
+        }
+    }
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (pendingGatewayTrust != null) {
             GatewayTrustDialog(
@@ -1593,7 +1604,7 @@ private fun HermesFinalStep(onFinish: () -> Unit) {
                         }
                     }
                 }
-                if (requiredBackends.any { it.type == BackendType.OPENCLAW_GATEWAY } && isPairingRequired) {
+                if (requiredBackends.any { it.type == BackendType.OPENCLAW_GATEWAY } && isPairingRequired && !isGatewayConnected && !gatewayChatReady && !verified) {
                     val deviceId = runtime.deviceId
                     Spacer(modifier = Modifier.height(16.dp))
                     if (deviceId != null) {
