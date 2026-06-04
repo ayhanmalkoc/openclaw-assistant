@@ -513,7 +513,7 @@ def start_multiplexed_public_tunnel(provider: str, approval_port: Optional[int] 
     return public_url.rstrip("/")
 
 
-def start_terminal_command_server() -> Optional[dict]:
+def start_terminal_command_server(bind_host: str = "127.0.0.1") -> Optional[dict]:
     secret = secrets.token_urlsafe(24)
     port = find_free_local_port()
     script_path = Path(tempfile.gettempdir()) / f"agentvoice-terminal-{port}.py"
@@ -531,6 +531,7 @@ from pathlib import Path
 
 port = int(sys.argv[1])
 secret = sys.argv[2]
+bind_host = sys.argv[3] if len(sys.argv) > 3 else "127.0.0.1"
 
 def run_command(command, timeout):
     return subprocess.run(
@@ -682,7 +683,7 @@ class TerminalHandler(BaseHTTPRequestHandler):
             "stderr": proc.stderr[-8000:],
         })
 
-ThreadingHTTPServer(("127.0.0.1", port), TerminalHandler).serve_forever()
+ThreadingHTTPServer((bind_host, port), TerminalHandler).serve_forever()
 '''.lstrip()
     )
     stop_temp_process("terminal", "server")
@@ -690,7 +691,7 @@ ThreadingHTTPServer(("127.0.0.1", port), TerminalHandler).serve_forever()
     log_file = log_path.open("w+")
     try:
         proc = subprocess.Popen(
-            [sys.executable, str(script_path), str(port), secret],
+            [sys.executable, str(script_path), str(port), secret, bind_host],
             stdout=log_file,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
@@ -713,7 +714,7 @@ ThreadingHTTPServer(("127.0.0.1", port), TerminalHandler).serve_forever()
         proc.terminate()
         log_file.close()
         return None
-    return {"port": port, "secret": secret}
+    return {"port": port, "secret": secret, "bindHost": bind_host}
 
 
 
@@ -1719,7 +1720,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     hermes_urls: List[str] = []
     hermes_public_url: Optional[str] = None
     terminal_pairing: Optional[dict] = discover_dashboard_terminal() if include_hermes and dashboard_port_open else None
-    terminal_command_pairing: Optional[dict] = start_terminal_command_server() if include_openclaw and openclaw_installed else None
+    terminal_bind_host = "0.0.0.0" if include_tailscale or not args.no_lan else "127.0.0.1"
+    terminal_command_pairing: Optional[dict] = (
+        start_terminal_command_server(bind_host=terminal_bind_host)
+        if include_openclaw and (openclaw_installed or discovered_openclaw_setup_code or openclaw_port_open)
+        else None
+    )
     openclaw_public_url: Optional[str] = None
     if use_public_tunnel:
         mux_public_url = None
