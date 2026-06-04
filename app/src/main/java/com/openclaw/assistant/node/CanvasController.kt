@@ -12,8 +12,11 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -51,6 +54,9 @@ class CanvasController {
 
   private val _isPageLoading = MutableStateFlow(false)
   val isPageLoadingFlow: StateFlow<Boolean> = _isPageLoading.asStateFlow()
+
+  private val _visibilityRequests = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+  val visibilityRequests: SharedFlow<Boolean> = _visibilityRequests.asSharedFlow()
 
   private val scaffoldAssetUrl = "file:///android_asset/CanvasScaffold/scaffold.html"
 
@@ -125,7 +131,12 @@ class CanvasController {
     this.url = safeUrl
     _isDefaultState.value = this.url == null
     if (this.url != null) _isPageLoading.value = true
+    _visibilityRequests.tryEmit(true)
     reload()
+  }
+
+  fun hide() {
+    _visibilityRequests.tryEmit(false)
   }
 
   fun currentUrl(): String? = url
