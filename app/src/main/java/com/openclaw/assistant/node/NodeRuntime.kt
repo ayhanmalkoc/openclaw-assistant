@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
 import com.openclaw.assistant.CameraHudKind
 import com.openclaw.assistant.CameraHudState
 import com.openclaw.assistant.LocationMode
@@ -637,6 +638,10 @@ class NodeRuntime(context: Context) {
 
   fun setDisplayName(value: String) {
     prefs.setDisplayName(value)
+  }
+
+  fun attachCameraLifecycleOwner(owner: LifecycleOwner) {
+    camera.attachLifecycleOwner(owner)
   }
 
   fun setCameraEnabled(value: Boolean) {
