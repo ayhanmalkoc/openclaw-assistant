@@ -553,6 +553,45 @@ def resolve_openclaw_latest_approval(command, proc, timeout):
         return proc
     return run_command(f"openclaw devices approve {match.group(1)}", timeout)
 
+def _pending_priority(item):
+    role = str(item.get("role") or "")
+    roles = [str(value) for value in (item.get("roles") or [])]
+    scopes = [str(value) for value in (item.get("scopes") or [])]
+    is_operator = role == "operator" or "operator" in roles or any(scope.startswith("operator.") for scope in scopes)
+    return (1 if is_operator else 0, -int(item.get("ts") or 0))
+
+
+def approve_pending_openclaw(kind, timeout):
+    list_cmd = f"openclaw {kind} list --json"
+    approve_cmd = f"openclaw {kind} approve"
+    list_proc = run_command(list_cmd, timeout)
+    if list_proc.returncode != 0:
+        return list_proc, 0
+    try:
+        payload = json.loads(list_proc.stdout or "{}")
+        pending = payload.get("pending") or []
+    except Exception as exc:
+        return subprocess.CompletedProcess(
+            args=list_cmd,
+            returncode=1,
+            stdout=list_proc.stdout,
+            stderr=f"Could not parse OpenClaw pending {kind} list: {exc}\n",
+        ), 0
+    if not pending:
+        return subprocess.CompletedProcess(args=list_cmd, returncode=0, stdout="", stderr=""), 0
+    selected = sorted(pending, key=_pending_priority)[0]
+    request_id = str(selected.get("requestId") or "").strip()
+    if not request_id:
+        return subprocess.CompletedProcess(
+            args=list_cmd,
+            returncode=1,
+            stdout=list_proc.stdout,
+            stderr=f"Latest OpenClaw {kind} pairing request has no requestId.\n",
+        ), 0
+    proc = run_command(f"{approve_cmd} {request_id}", timeout)
+    return proc, 1 if proc.returncode == 0 else 0
+
+
 def approve_latest_openclaw(timeout):
     last_error = None
     approved_stdout = ""
@@ -560,66 +599,40 @@ def approve_latest_openclaw(timeout):
     approved_count = 0
     attempts = max(1, min(int(timeout * 2), 120))
     for _ in range(attempts):
-        list_proc = run_command("openclaw devices list --json", timeout)
-        if list_proc.returncode != 0:
-            return list_proc if approved_count == 0 else subprocess.CompletedProcess(
-                args="openclaw devices approve --latest",
-                returncode=0,
-                stdout=approved_stdout,
-                stderr=approved_stderr + (list_proc.stderr or ""),
-            )
-        try:
-            payload = json.loads(list_proc.stdout or "{}")
-            pending = payload.get("pending") or []
-        except Exception as exc:
+        made_progress = False
+        for kind in ("devices", "nodes"):
+            proc, count = approve_pending_openclaw(kind, timeout)
+            combined = (proc.stderr or "") + (proc.stdout or "")
+            if proc.returncode == 0 and count > 0:
+                approved_count += count
+                made_progress = True
+                approved_stdout += proc.stdout or ""
+                approved_stderr += proc.stderr or ""
+                time.sleep(0.5)
+                break
+            if proc.returncode != 0:
+                if "unknown requestId" in combined:
+                    last_error = proc.stderr or proc.stdout or "OpenClaw pairing request disappeared before approval.\n"
+                    time.sleep(0.4)
+                    made_progress = True
+                    break
+                if "role-management-requires-admin" in combined and approved_count > 0:
+                    last_error = proc.stderr or proc.stdout
+                    time.sleep(0.5)
+                    made_progress = True
+                    break
+                return proc
+        if made_progress:
+            continue
+        if approved_count > 0:
             return subprocess.CompletedProcess(
                 args="openclaw devices approve --latest",
-                returncode=1,
-                stdout=list_proc.stdout,
-                stderr=f"Could not parse OpenClaw pending device list: {exc}\n",
+                returncode=0,
+                stdout=approved_stdout or f"Approved {approved_count} OpenClaw pairing request(s).\n",
+                stderr=approved_stderr,
             )
-        if not pending:
-            if approved_count > 0:
-                return subprocess.CompletedProcess(
-                    args="openclaw devices approve --latest",
-                    returncode=0,
-                    stdout=approved_stdout or f"Approved {approved_count} OpenClaw pairing request(s).\n",
-                    stderr=approved_stderr,
-                )
-            last_error = "No pending OpenClaw pairing request.\n"
-            time.sleep(0.5)
-            continue
-
-        def pending_priority(item):
-            role = str(item.get("role") or "")
-            roles = [str(value) for value in (item.get("roles") or [])]
-            scopes = [str(value) for value in (item.get("scopes") or [])]
-            is_operator = role == "operator" or "operator" in roles or any(scope.startswith("operator.") for scope in scopes)
-            return (1 if is_operator else 0, -int(item.get("ts") or 0))
-
-        selected = sorted(pending, key=pending_priority)[0]
-        request_id = str(selected.get("requestId") or "").strip()
-        if not request_id:
-            last_error = "Latest OpenClaw pairing request has no requestId.\n"
-            time.sleep(0.5)
-            continue
-        approve_proc = run_command(f"openclaw devices approve {request_id}", timeout)
-        combined = (approve_proc.stderr or "") + (approve_proc.stdout or "")
-        if approve_proc.returncode == 0:
-            approved_count += 1
-            approved_stdout += approve_proc.stdout or ""
-            approved_stderr += approve_proc.stderr or ""
-            time.sleep(0.5)
-            continue
-        if "unknown requestId" in combined:
-            last_error = approve_proc.stderr or approve_proc.stdout or "OpenClaw pairing request disappeared before approval.\n"
-            time.sleep(0.4)
-            continue
-        if "role-management-requires-admin" in combined and approved_count > 0:
-            last_error = approve_proc.stderr or approve_proc.stdout
-            time.sleep(0.5)
-            continue
-        return approve_proc
+        last_error = "No pending OpenClaw pairing request.\n"
+        time.sleep(0.5)
     return subprocess.CompletedProcess(
         args="openclaw devices approve --latest",
         returncode=0 if approved_count > 0 else 1,

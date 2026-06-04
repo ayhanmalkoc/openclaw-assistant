@@ -76,6 +76,8 @@ fun PairingRequiredCard(deviceId: String, displayName: String = "") {
             if (terminalResult.isSuccess) {
                 commandStatus = context.getString(R.string.pairing_terminal_approve_sent)
                 nodeRuntime.refreshGatewayConnection()
+                delay(1_500)
+                nodeRuntime.refreshGatewayConnection()
             } else {
                 runningCommand = true
                 if (approveThroughGateway()) {
