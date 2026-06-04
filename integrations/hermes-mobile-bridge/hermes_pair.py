@@ -716,6 +716,26 @@ ThreadingHTTPServer(("127.0.0.1", port), TerminalHandler).serve_forever()
     return {"port": port, "secret": secret}
 
 
+
+
+def phone_reachable_command_url(port: int, include_tailscale: bool, no_lan: bool) -> Optional[str]:
+    hosts: List[str] = []
+    if include_tailscale:
+        for host in (tailscale_dns_name(), tailscale_ip()):
+            if host and host not in hosts:
+                hosts.append(host)
+    if not no_lan:
+        lan = first_lan_ip()
+        if lan and lan not in hosts:
+            hosts.append(lan)
+    for host in hosts:
+        if is_port_open(host, port, timeout=0.5):
+            return f"http://{host}:{port}/run"
+    if hosts:
+        return f"http://{hosts[0]}:{port}/run"
+    return None
+
+
 def origin_variants_for_url(url: str) -> List[str]:
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
@@ -1735,16 +1755,38 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not mux_public_url and include_openclaw and openclaw_port_open:
             openclaw_public_url = start_public_tunnel("http://127.0.0.1:18789", "openclaw", args.tunnel_provider)
         if not mux_public_url and terminal_command_pairing and terminal_command_pairing.get("port"):
-            terminal_public_url = start_public_tunnel(
-                f"http://127.0.0.1:{terminal_command_pairing['port']}",
-                "agentvoice-terminal",
-                args.tunnel_provider,
-            )
-            if terminal_public_url:
-                terminal_command_pairing = dict(terminal_command_pairing)
-                terminal_command_pairing["url"] = terminal_public_url.rstrip("/") + "/run"
+            if use_public_tunnel:
+                terminal_public_url = start_public_tunnel(
+                    f"http://127.0.0.1:{terminal_command_pairing['port']}",
+                    "agentvoice-terminal",
+                    args.tunnel_provider,
+                )
+                if terminal_public_url:
+                    terminal_command_pairing = dict(terminal_command_pairing)
+                    terminal_command_pairing["url"] = terminal_public_url.rstrip("/") + "/run"
+            if not terminal_command_pairing.get("url"):
+                command_url = phone_reachable_command_url(
+                    int(terminal_command_pairing["port"]),
+                    include_tailscale=include_tailscale,
+                    no_lan=args.no_lan,
+                )
+                if command_url:
+                    terminal_command_pairing = dict(terminal_command_pairing)
+                    terminal_command_pairing["url"] = command_url
+                    print(f"Using phone-reachable OpenClaw approval command endpoint: {command_url}")
         if openclaw_public_url:
             configure_openclaw_allowed_origin(openclaw_public_url)
+
+    if terminal_command_pairing and terminal_command_pairing.get("port") and not terminal_command_pairing.get("url"):
+        command_url = phone_reachable_command_url(
+            int(terminal_command_pairing["port"]),
+            include_tailscale=include_tailscale,
+            no_lan=args.no_lan,
+        )
+        if command_url:
+            terminal_command_pairing = dict(terminal_command_pairing)
+            terminal_command_pairing["url"] = command_url
+            print(f"Using phone-reachable OpenClaw approval command endpoint: {command_url}")
 
     if include_hermes:
         hermes_candidates: List[str] = []
