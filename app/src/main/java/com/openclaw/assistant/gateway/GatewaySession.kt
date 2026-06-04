@@ -218,6 +218,26 @@ class GatewaySession(
     }
   }
 
+  suspend fun restart(
+    endpoint: GatewayEndpoint,
+    token: String?,
+    password: String?,
+    bootstrapToken: String? = null,
+    options: GatewayConnectOptions,
+    tls: GatewayTlsParams? = null,
+  ) {
+    desired = DesiredConnection(endpoint, token, password, bootstrapToken, options, tls)
+    currentConnection?.closeQuietly()
+    withContext(Dispatchers.IO) {
+      job?.cancelAndJoin()
+      job = null
+      currentConnection = null
+      canvasHostUrl = null
+      mainSessionKey = null
+    }
+    job = scope.launch(Dispatchers.IO) { runLoop() }
+  }
+
   fun reconnect() {
     currentConnection?.closeQuietly()
   }

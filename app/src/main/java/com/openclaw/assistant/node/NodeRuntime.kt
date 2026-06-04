@@ -746,6 +746,15 @@ class NodeRuntime(context: Context) {
     nodeSession.reconnect()
   }
 
+  private suspend fun restartNodeWithFreshSurface() {
+    val endpoint = connectedEndpoint ?: return
+    val token = prefs.loadGatewayToken()
+    val password = prefs.loadGatewayPassword()
+    val bootstrapToken = prefs.loadGatewayBootstrapToken()
+    val tls = connectionManager.resolveTlsParams(endpoint)
+    nodeSession.restart(endpoint, token, password, bootstrapToken, connectionManager.buildNodeConnectOptions(), tls)
+  }
+
   suspend fun approvePendingPairingForDevice(targetDeviceId: String): PairingApprovalResult {
     val normalizedDeviceId = targetDeviceId.trim()
     if (normalizedDeviceId.isBlank()) {
@@ -758,7 +767,7 @@ class NodeRuntime(context: Context) {
       if (!password.isNullOrBlank()) {
         val requestId = approvePendingPairingWithPasswordOperatorForDevice(normalizedDeviceId)
         Log.d("NodeRuntime", "Approved pending device pairing request $requestId")
-        refreshGatewayConnection()
+        restartNodeWithFreshSurface()
         return PairingApprovalResult(approved = true, requestId = requestId)
       }
       val listJson = operatorSession.request("device.pair.list", "{}", timeoutMs = 10_000)
@@ -779,7 +788,7 @@ class NodeRuntime(context: Context) {
       Log.d("NodeRuntime", "Pairing approval using existing operator session; no password available for operator.pairing session")
       operatorSession.request("device.pair.approve", params.toString(), timeoutMs = 10_000)
       Log.d("NodeRuntime", "Approved pending device pairing request $requestId")
-      refreshGatewayConnection()
+      restartNodeWithFreshSurface()
       PairingApprovalResult(approved = true, requestId = requestId)
     } catch (err: Throwable) {
       Log.w("NodeRuntime", "Device pairing approval failed: ${err.message ?: err::class.java.simpleName}")
