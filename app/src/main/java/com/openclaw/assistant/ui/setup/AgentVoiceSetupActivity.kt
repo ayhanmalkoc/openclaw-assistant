@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import com.openclaw.assistant.BuildConfig
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -170,7 +171,7 @@ private fun UnifiedPairingCard(includeHermes: Boolean, includeOpenClaw: Boolean)
     val context = LocalContext.current
     var status by remember { mutableStateOf<String?>(null) }
     var pairingReview by remember { mutableStateOf<EditablePairingPayload?>(null) }
-    val installCommand = "curl -fsSL https://raw.githubusercontent.com/yuga-hashimoto/openclaw-assistant/main/integrations/agentvoice-pair/install.sh | bash"
+    val installCommand = "curl -fsSL ${BuildConfig.AGENT_VOICE_RAW_BASE}/integrations/agentvoice-pair/install.sh | bash"
     val pairCommand = "agentvoice-pair"
     val scopeText = when {
         includeHermes && includeOpenClaw -> stringResource(R.string.av_setup_scope_both)

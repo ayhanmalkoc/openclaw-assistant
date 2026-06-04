@@ -4,7 +4,7 @@ The fastest way to set up WakeHermesClaw is to install the host-side helper, the
 scan the one QR it prints:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yuga-hashimoto/openclaw-assistant/main/integrations/agentvoice-pair/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ayhanmalkoc/openclaw-assistant/main/integrations/agentvoice-pair/install.sh | bash
 agentvoice-pair
 ```
 

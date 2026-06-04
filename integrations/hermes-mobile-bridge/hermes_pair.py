@@ -920,6 +920,14 @@ def env_lookup(keys: Iterable[str], envs: Iterable[dict] = ()) -> Optional[str]:
     return None
 
 
+def resolve_env_reference(value: str, envs: Iterable[dict] = ()) -> Optional[str]:
+    value = value.strip()
+    match = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", value) or re.fullmatch(r"\$([A-Za-z_][A-Za-z0-9_]*)", value)
+    if not match:
+        return value or None
+    return env_lookup((match.group(1),), envs)
+
+
 def json_lookup(paths: Iterable[Path], keys: set[str]) -> Optional[str]:
     lowered = {key.lower() for key in keys}
     for path in readable_existing(paths):
@@ -1086,6 +1094,7 @@ def setup_code_for_host_approval(code: Optional[str], approval: Optional[dict]) 
 
 
 def openclaw_setup_code_from_config() -> Optional[str]:
+    envs = [read_env_file(path) for path in readable_existing(OPENCLAW_ENV_PATHS)]
     for path in readable_existing(OPENCLAW_JSON_PATHS):
         cfg = read_json(path)
         gateway = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else {}
@@ -1095,8 +1104,8 @@ def openclaw_setup_code_from_config() -> Optional[str]:
             continue
         payload: dict = {"url": url}
         mode = str(auth.get("mode") or "").lower()
-        token = str(auth.get("token") or "").strip()
-        password = str(auth.get("password") or "").strip()
+        token = resolve_env_reference(str(auth.get("token") or ""), envs) or ""
+        password = resolve_env_reference(str(auth.get("password") or ""), envs) or ""
         if mode == "password" and password:
             payload["password"] = password
         elif token:

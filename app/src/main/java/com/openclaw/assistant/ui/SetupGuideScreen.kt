@@ -10,6 +10,7 @@ import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.openclaw.assistant.BuildConfig
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -778,7 +779,7 @@ private fun AgentVoiceUnifiedPairingContent(configuredBackendCount: Int) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(stringResource(R.string.av_pairing_card_step1), style = MaterialTheme.typography.bodyMedium, color = OnboardingTextPrimary)
-                CommandBlock("curl -fsSL https://raw.githubusercontent.com/yuga-hashimoto/openclaw-assistant/main/integrations/agentvoice-pair/install.sh | bash")
+                CommandBlock("curl -fsSL ${BuildConfig.AGENT_VOICE_RAW_BASE}/integrations/agentvoice-pair/install.sh | bash")
                 Text(stringResource(R.string.av_pairing_card_step2), style = MaterialTheme.typography.bodyMedium, color = OnboardingTextPrimary)
                 CommandBlock("agentvoice-pair")
                 Text(stringResource(R.string.av_pairing_card_step3), style = MaterialTheme.typography.bodyMedium, color = OnboardingTextPrimary)
@@ -1715,7 +1716,7 @@ private fun CommandBlock(command: String) {
     ) {
         val displayCommand = remember(command) {
             command.replace(
-                "https://raw.githubusercontent.com/yuga-hashimoto/openclaw-assistant/main/",
+                BuildConfig.AGENT_VOICE_RAW_BASE.trimEnd('/') + "/",
                 "https://raw.githubusercontent.com/.../"
             )
         }

@@ -43,6 +43,22 @@ fun getTagVersionCode(): Int {
     return try { count.toInt() } catch (e: Exception) { 1 }
 }
 
+fun getAgentVoiceRawBase(): String {
+    System.getenv("AGENT_VOICE_RAW_BASE")?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }?.let { return it }
+    val origin = executeCommand("git", "remote", "get-url", "origin").trim()
+    val httpsMatch = Regex("https://github\\.com/([^/]+)/([^/.]+)(?:\\.git)?").matchEntire(origin)
+    if (httpsMatch != null) {
+        val (owner, repo) = httpsMatch.destructured
+        return "https://raw.githubusercontent.com/$owner/$repo/main"
+    }
+    val sshMatch = Regex("git@github\\.com:([^/]+)/([^/.]+)(?:\\.git)?").matchEntire(origin)
+    if (sshMatch != null) {
+        val (owner, repo) = sshMatch.destructured
+        return "https://raw.githubusercontent.com/$owner/$repo/main"
+    }
+    return "https://raw.githubusercontent.com/ayhanmalkoc/openclaw-assistant/main"
+}
+
 android {
     namespace = "com.openclaw.assistant"
     compileSdk = 35
@@ -53,6 +69,11 @@ android {
         targetSdk = 34
         versionCode = getTagVersionCode()
         versionName = getTagName()
+        buildConfigField(
+            "String",
+            "AGENT_VOICE_RAW_BASE",
+            "\"${getAgentVoiceRawBase()}\""
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
