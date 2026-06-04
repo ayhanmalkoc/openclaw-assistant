@@ -584,9 +584,7 @@ class GatewaySession(
 
       val password = authPassword?.trim().orEmpty()
       val bootstrapTokenTrimmed = authBootstrapToken?.trim().orEmpty()
-      val connectScopes =
-        if (bootstrapTokenTrimmed.isNotEmpty() && options.role == "node") emptyList()
-        else options.scopes
+      val connectScopes = options.scopes
       val authJson =
         when {
           authToken.isNotEmpty() ->
