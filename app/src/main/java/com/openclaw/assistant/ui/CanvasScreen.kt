@@ -173,10 +173,13 @@ private fun CanvasChatBar(
         lastAiText = null
         lastAssistantIdAtSend = messages.lastOrNull { it.role == "assistant" }?.id
         isSending = true
-        val canvasInstruction = "[CANVAS MODE] You MUST use canvas tools to respond to this message. " +
-            "Use canvas.eval() to display your response as HTML in the canvas, " +
-            "or canvas.navigate() to load a page. " +
-            "Do NOT reply with plain text only — the user cannot see plain text responses here.\n\n"
+        val canvasInstruction = "[CANVAS MODE - ANDROID NODE] You are responding inside the Android Canvas surface. " +
+            "You MUST update the visible Canvas by invoking an Android node canvas command. " +
+            "Use canvas.eval with JavaScript/HTML to render directly, or use canvas.navigate with a URL that the Android node can load. " +
+            "Do NOT finish with plain text only. Do NOT return [embed ...] as the final answer. " +
+            "If you create an HTML file or canvas artifact, you MUST call canvas.navigate for that URL before finalizing. " +
+            "If you render inline content, you MUST call canvas.eval before finalizing. " +
+            "Consider the task incomplete until a canvas command succeeds; after that, reply with only a short status.\n\n"
         nodeRuntimeRef.value.sendChat(canvasInstruction + text, "low", emptyList())
     }
 
