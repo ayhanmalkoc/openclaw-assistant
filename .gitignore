@@ -24,3 +24,9 @@ AGENTS.md
 artifacts/
 artifacts-current.png
 __pycache__/
+
+# Local debug/test outputs
+downloads/
+tmp_*.py
+window*.xml
+node-allow*.patch.json5
