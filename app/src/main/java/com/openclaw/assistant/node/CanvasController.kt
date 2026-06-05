@@ -44,6 +44,7 @@ class CanvasController {
 
   @Volatile var gatewayToken: String? = null
   @Volatile var gatewayOrigin: String? = null
+  @Volatile private var canvasSurfaceUrl: String? = null
 
   // Persistent WebView: survives tab switches so canvas state is preserved
   @Volatile private var cachedWebView: WebView? = null
@@ -70,10 +71,36 @@ class CanvasController {
     gatewayToken = token
   }
 
+  fun setCanvasSurfaceUrl(url: String?) {
+    canvasSurfaceUrl = url?.trim()?.takeIf { it.isNotBlank() }
+  }
+
+  private fun resolveAgainstCanvasSurface(path: String): String? {
+    val surface = canvasSurfaceUrl?.takeIf { it.isNotBlank() } ?: return null
+    val parsed = runCatching { java.net.URI(surface) }.getOrNull() ?: return null
+    val scheme = parsed.scheme ?: return null
+    val host = parsed.host ?: return null
+    val port = if (parsed.port >= 0) ":${parsed.port}" else ""
+    val authority = "$scheme://$host$port"
+    val suffix = path.removePrefix("/__openclaw__/canvas")
+    val surfacePath = parsed.rawPath.orEmpty().trimEnd('/')
+    val resolvedPath = if (surfacePath.endsWith("/__openclaw__/canvas")) {
+      surfacePath + if (suffix.startsWith("/")) suffix else "/$suffix"
+    } else {
+      path
+    }
+    val query = parsed.rawQuery?.let { "?$it" }.orEmpty()
+    val fragment = parsed.rawFragment?.let { "#$it" }.orEmpty()
+    return "$authority$resolvedPath$query$fragment"
+  }
+
   private fun resolveNavigationUrl(rawUrl: String): String? {
     val trimmed = rawUrl.trim()
     if (trimmed.isBlank() || trimmed == "/") return null
     if (trimmed.startsWith("/")) {
+      if (trimmed.startsWith("/__openclaw__/canvas/")) {
+        resolveAgainstCanvasSurface(trimmed)?.let { return it }
+      }
       val origin = gatewayOrigin?.takeIf { it.isNotBlank() }
       if (origin == null) {
         Log.w("OpenClawCanvas", "Blocked root-relative navigation without gateway origin: $trimmed")

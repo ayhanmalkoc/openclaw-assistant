@@ -456,7 +456,12 @@ class NodeRuntime(context: Context) {
 
   private suspend fun refreshNodeCanvasCapabilityAndNavigate() {
     nodeSession.refreshNodeCanvasCapability()
+    refreshCanvasSurfaceUrl()
     maybeNavigateToA2uiOnConnect()
+  }
+
+  private fun refreshCanvasSurfaceUrl() {
+    canvas.setCanvasSurfaceUrl(nodeSession.currentCanvasHostUrl() ?: operatorSession.currentCanvasHostUrl())
   }
 
   private fun maybeNavigateToA2uiOnConnect() {
