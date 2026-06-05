@@ -66,8 +66,22 @@ class CanvasController {
   }
 
   fun setGatewayAuth(origin: String?, token: String?) {
-    gatewayOrigin = origin
+    gatewayOrigin = origin?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
     gatewayToken = token
+  }
+
+  private fun resolveNavigationUrl(rawUrl: String): String? {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank() || trimmed == "/") return null
+    if (trimmed.startsWith("/")) {
+      val origin = gatewayOrigin?.takeIf { it.isNotBlank() }
+      if (origin == null) {
+        Log.w("OpenClawCanvas", "Blocked root-relative navigation without gateway origin: $trimmed")
+        return null
+      }
+      return "$origin$trimmed"
+    }
+    return trimmed
   }
 
   /** Returns the persistent WebView, creating it on first call. */
@@ -115,16 +129,16 @@ class CanvasController {
   }
 
   fun navigate(url: String) {
-    val trimmed = url.trim()
-    val safeUrl = if (trimmed.isBlank() || trimmed == "/") {
+    val resolved = resolveNavigationUrl(url)
+    val safeUrl = if (resolved == null) {
       null
     } else {
-      val lower = trimmed.lowercase()
-      if (com.openclaw.assistant.shared.utils.NetworkUtils.isUrlSecure(trimmed) ||
+      val lower = resolved.lowercase()
+      if (com.openclaw.assistant.shared.utils.NetworkUtils.isUrlSecure(resolved) ||
           lower.startsWith("file:///android_asset/")) {
-        trimmed
+        resolved
       } else {
-        Log.w("OpenClawCanvas", "Blocked unsafe navigation URL: $trimmed")
+        Log.w("OpenClawCanvas", "Blocked unsafe navigation URL: $resolved")
         null
       }
     }

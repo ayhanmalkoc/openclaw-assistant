@@ -568,6 +568,29 @@ class NodeRuntime(context: Context) {
 
     scope.launch {
       combine(
+        manualHost,
+        manualPort,
+        manualTls,
+        gatewayToken,
+      ) { host: String, port: Int, tls: Boolean, token: String ->
+        val cleanHost = host.trim()
+          .removePrefix("https://")
+          .removePrefix("http://")
+          .removeSuffix("/")
+        val origin = if (cleanHost.isNotBlank() && port in 1..65535) {
+          "${if (tls) "https" else "http"}://$cleanHost:$port"
+        } else {
+          null
+        }
+        origin to token.trim()
+      }.distinctUntilChanged()
+        .collect { (origin, token) ->
+          canvas.setGatewayAuth(origin, token)
+        }
+    }
+
+    scope.launch {
+      combine(
         canvasDebugStatusEnabled,
         statusText,
         serverName,
