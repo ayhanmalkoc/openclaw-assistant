@@ -160,6 +160,10 @@ class CanvasController {
     applyHomeCanvasState()
   }
 
+  fun onPageError() {
+    _isPageLoading.value = false
+  }
+
   fun updateHomeCanvasState(json: String?) {
     homeCanvasStateJson = json
     applyHomeCanvasState()
