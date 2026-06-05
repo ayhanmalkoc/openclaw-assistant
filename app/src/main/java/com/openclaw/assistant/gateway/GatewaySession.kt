@@ -125,6 +125,7 @@ class GatewaySession(
       raw: String?,
       endpoint: GatewayEndpoint,
       isTlsConnection: Boolean = false,
+      preserveAdvertisedPort: Boolean = false,
     ): String? {
       val trimmed = raw?.trim().orEmpty()
       val parsed = trimmed.takeIf { it.isNotBlank() }
@@ -137,6 +138,7 @@ class GatewaySession(
       val tls = isTlsConnection || endpoint.port == 443 || endpoint.host.contains(".")
 
       if (trimmed.isNotBlank() && !isLoopbackHost(host)) {
+        if (preserveAdvertisedPort) return trimmed
         if (tls && port > 0 && port != 443) {
           return buildCanvasUrl("https", host, 443, suffix)
         }
@@ -298,7 +300,12 @@ class GatewaySession(
       val obj = json.parseToJsonElement(res).asObjectOrNull() ?: return
       val rawSurface = extractCanvasPluginSurfaceUrl(obj)
       if (rawSurface != null) {
-        canvasSurfaceUrl = normalizeCanvasHostUrl(rawSurface, target.endpoint, isTlsConnection = target.tls != null)
+        canvasSurfaceUrl = normalizeCanvasHostUrl(
+          rawSurface,
+          target.endpoint,
+          isTlsConnection = target.tls != null,
+          preserveAdvertisedPort = true,
+        )
         return
       }
     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -605,7 +612,12 @@ class GatewaySession(
         }
       }
       val rawSurface = extractCanvasPluginSurfaceUrl(obj)
-      canvasSurfaceUrl = normalizeCanvasHostUrl(rawSurface, endpoint, isTlsConnection = tls != null)
+      canvasSurfaceUrl = normalizeCanvasHostUrl(
+        rawSurface,
+        endpoint,
+        isTlsConnection = tls != null,
+        preserveAdvertisedPort = true,
+      )
       val rawCanvas = obj["canvasHostUrl"].asStringOrNull()
       legacyCanvasHostUrl = normalizeCanvasHostUrl(rawCanvas, endpoint, isTlsConnection = tls != null)
       val sessionDefaults =

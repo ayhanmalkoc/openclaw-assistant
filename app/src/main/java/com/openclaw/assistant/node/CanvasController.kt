@@ -86,6 +86,8 @@ class CanvasController {
     val surfacePath = parsed.rawPath.orEmpty().trimEnd('/')
     val resolvedPath = if (surfacePath.endsWith("/__openclaw__/canvas")) {
       surfacePath + if (suffix.startsWith("/")) suffix else "/$suffix"
+    } else if (surfacePath.contains("/__openclaw__/cap/")) {
+      surfacePath + path
     } else {
       path
     }
