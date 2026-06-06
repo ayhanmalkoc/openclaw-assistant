@@ -125,6 +125,7 @@ class GatewaySession(
       raw: String?,
       endpoint: GatewayEndpoint,
       isTlsConnection: Boolean = false,
+      preserveAdvertisedPort: Boolean = false,
     ): String? {
       val trimmed = raw?.trim().orEmpty()
       val parsed = trimmed.takeIf { it.isNotBlank() }
@@ -137,6 +138,7 @@ class GatewaySession(
       val tls = isTlsConnection || endpoint.port == 443 || endpoint.host.contains(".")
 
       if (trimmed.isNotBlank() && !isLoopbackHost(host)) {
+        if (preserveAdvertisedPort) return trimmed
         if (tls && port > 0 && port != 443) {
           return buildCanvasUrl("https", host, 443, suffix)
         }
@@ -152,6 +154,23 @@ class GatewaySession(
       val fallbackScheme = if (tls) "https" else scheme
       val fallbackPort = if (tls) endpoint.port else (endpoint.canvasPort ?: endpoint.port)
       return buildCanvasUrl(fallbackScheme, fallbackHost, fallbackPort, suffix)
+    }
+
+    internal fun extractCanvasPluginSurfaceUrl(obj: JsonObject): String? {
+      val surfaces = obj["pluginSurfaceUrls"].asObjectOrNull()
+      val canvas = surfaces?.get("canvas").asStringOrNull()?.trim().orEmpty()
+      if (canvas.isNotBlank()) return canvas
+
+      val surface = obj["surface"].asStringOrNull()?.trim().orEmpty()
+      val url = obj["url"].asStringOrNull()?.trim().orEmpty()
+      if (surface == "canvas" && url.isNotBlank()) return url
+
+      val surfaceObj = obj["surface"].asObjectOrNull()
+      val surfaceName = surfaceObj?.get("name").asStringOrNull()?.trim().orEmpty()
+      val surfaceUrl = surfaceObj?.get("url").asStringOrNull()?.trim().orEmpty()
+      if (surfaceName == "canvas" && surfaceUrl.isNotBlank()) return surfaceUrl
+
+      return obj["canvas"].asStringOrNull()?.trim()?.takeIf { it.isNotBlank() }
     }
   }
   data class InvokeRequest(
@@ -176,7 +195,8 @@ class GatewaySession(
   private val writeLock = Mutex()
   private val pending = ConcurrentHashMap<String, CompletableDeferred<RpcResponse>>()
 
-  @Volatile private var canvasHostUrl: String? = null
+  @Volatile private var canvasSurfaceUrl: String? = null
+  @Volatile private var legacyCanvasHostUrl: String? = null
   @Volatile private var mainSessionKey: String? = null
 
   private data class DesiredConnection(
@@ -212,7 +232,8 @@ class GatewaySession(
     scope.launch(Dispatchers.IO) {
       job?.cancelAndJoin()
       job = null
-      canvasHostUrl = null
+      canvasSurfaceUrl = null
+      legacyCanvasHostUrl = null
       mainSessionKey = null
       onDisconnected("Offline")
     }
@@ -232,7 +253,8 @@ class GatewaySession(
       job?.cancelAndJoin()
       job = null
       currentConnection = null
-      canvasHostUrl = null
+      canvasSurfaceUrl = null
+      legacyCanvasHostUrl = null
       mainSessionKey = null
     }
     job = scope.launch(Dispatchers.IO) { runLoop() }
@@ -242,7 +264,7 @@ class GatewaySession(
     currentConnection?.closeQuietly()
   }
 
-  fun currentCanvasHostUrl(): String? = canvasHostUrl
+  fun currentCanvasHostUrl(): String? = canvasSurfaceUrl ?: legacyCanvasHostUrl
   fun currentMainSessionKey(): String? = mainSessionKey
 
   suspend fun sendNodeEvent(event: String, payloadJson: String?): Boolean {
@@ -270,20 +292,39 @@ class GatewaySession(
     }
   }
 
-  /** Fetch the current canvas capability from the node and refresh [canvasHostUrl]. */
+  /** Fetch the current canvas plugin surface and refresh the Canvas URL. */
   suspend fun refreshNodeCanvasCapability() {
     val target = desired ?: return
+    try {
+      val res = request("node.pluginSurface.refresh", "{\"surface\":\"canvas\"}")
+      val obj = json.parseToJsonElement(res).asObjectOrNull() ?: return
+      val rawSurface = extractCanvasPluginSurfaceUrl(obj)
+      if (rawSurface != null) {
+        canvasSurfaceUrl = normalizeCanvasHostUrl(
+          rawSurface,
+          target.endpoint,
+          isTlsConnection = target.tls != null,
+          preserveAdvertisedPort = true,
+        )
+        return
+      }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+      throw e
+    } catch (_: Throwable) {
+      // best-effort — legacy refresh below and connect payload are fallbacks
+    }
+
     try {
       val res = request("node.canvas.capability.refresh", null)
       val obj = json.parseToJsonElement(res).asObjectOrNull() ?: return
       val rawCanvas = obj["canvasHostUrl"].asStringOrNull()
       if (rawCanvas != null) {
-        canvasHostUrl = normalizeCanvasHostUrl(rawCanvas, target.endpoint, isTlsConnection = target.tls != null)
+        legacyCanvasHostUrl = normalizeCanvasHostUrl(rawCanvas, target.endpoint, isTlsConnection = target.tls != null)
       }
     } catch (e: kotlinx.coroutines.CancellationException) {
       throw e
     } catch (_: Throwable) {
-      // best-effort — canvas URL from connect payload is the fallback
+      // best-effort — connect payload is the fallback
     }
   }
 
@@ -570,8 +611,15 @@ class GatewaySession(
           deviceAuthStore.saveToken(identityId, role, token)
         }
       }
+      val rawSurface = extractCanvasPluginSurfaceUrl(obj)
+      canvasSurfaceUrl = normalizeCanvasHostUrl(
+        rawSurface,
+        endpoint,
+        isTlsConnection = tls != null,
+        preserveAdvertisedPort = true,
+      )
       val rawCanvas = obj["canvasHostUrl"].asStringOrNull()
-      canvasHostUrl = normalizeCanvasHostUrl(rawCanvas, endpoint, isTlsConnection = tls != null)
+      legacyCanvasHostUrl = normalizeCanvasHostUrl(rawCanvas, endpoint, isTlsConnection = tls != null)
       val sessionDefaults =
         obj["snapshot"].asObjectOrNull()
           ?.get("sessionDefaults").asObjectOrNull()
@@ -854,7 +902,8 @@ class GatewaySession(
       conn.awaitClose()
     } finally {
       currentConnection = null
-      canvasHostUrl = null
+      canvasSurfaceUrl = null
+      legacyCanvasHostUrl = null
       mainSessionKey = null
     }
   }

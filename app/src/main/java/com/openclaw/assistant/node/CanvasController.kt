@@ -12,8 +12,11 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -41,6 +44,7 @@ class CanvasController {
 
   @Volatile var gatewayToken: String? = null
   @Volatile var gatewayOrigin: String? = null
+  @Volatile private var canvasSurfaceUrl: String? = null
 
   // Persistent WebView: survives tab switches so canvas state is preserved
   @Volatile private var cachedWebView: WebView? = null
@@ -52,6 +56,9 @@ class CanvasController {
   private val _isPageLoading = MutableStateFlow(false)
   val isPageLoadingFlow: StateFlow<Boolean> = _isPageLoading.asStateFlow()
 
+  private val _visibilityRequests = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+  val visibilityRequests: SharedFlow<Boolean> = _visibilityRequests.asSharedFlow()
+
   private val scaffoldAssetUrl = "file:///android_asset/CanvasScaffold/scaffold.html"
 
   private fun clampJpegQuality(quality: Double?): Int {
@@ -60,8 +67,50 @@ class CanvasController {
   }
 
   fun setGatewayAuth(origin: String?, token: String?) {
-    gatewayOrigin = origin
+    gatewayOrigin = origin?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
     gatewayToken = token
+  }
+
+  fun setCanvasSurfaceUrl(url: String?) {
+    canvasSurfaceUrl = url?.trim()?.takeIf { it.isNotBlank() }
+  }
+
+  private fun resolveAgainstCanvasSurface(path: String): String? {
+    val surface = canvasSurfaceUrl?.takeIf { it.isNotBlank() } ?: return null
+    val parsed = runCatching { java.net.URI(surface) }.getOrNull() ?: return null
+    val scheme = parsed.scheme ?: return null
+    val host = parsed.host ?: return null
+    val port = if (parsed.port >= 0) ":${parsed.port}" else ""
+    val authority = "$scheme://$host$port"
+    val suffix = path.removePrefix("/__openclaw__/canvas")
+    val surfacePath = parsed.rawPath.orEmpty().trimEnd('/')
+    val resolvedPath = if (surfacePath.endsWith("/__openclaw__/canvas")) {
+      surfacePath + if (suffix.startsWith("/")) suffix else "/$suffix"
+    } else if (surfacePath.contains("/__openclaw__/cap/")) {
+      surfacePath + path
+    } else {
+      path
+    }
+    val query = parsed.rawQuery?.let { "?$it" }.orEmpty()
+    val fragment = parsed.rawFragment?.let { "#$it" }.orEmpty()
+    return "$authority$resolvedPath$query$fragment"
+  }
+
+  private fun resolveNavigationUrl(rawUrl: String): String? {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank() || trimmed == "/") return null
+    if (trimmed.startsWith("/")) {
+      if (trimmed.startsWith("/__openclaw__/canvas/")) {
+        resolveAgainstCanvasSurface(trimmed)?.let { return it }
+      }
+      val origin = gatewayOrigin?.takeIf { it.isNotBlank() }
+      if (origin == null) {
+        Log.w("OpenClawCanvas", "Blocked root-relative navigation without gateway origin: $trimmed")
+        return null
+      }
+      return "$origin$trimmed"
+    }
+    return trimmed
   }
 
   /** Returns the persistent WebView, creating it on first call. */
@@ -109,23 +158,28 @@ class CanvasController {
   }
 
   fun navigate(url: String) {
-    val trimmed = url.trim()
-    val safeUrl = if (trimmed.isBlank() || trimmed == "/") {
+    val resolved = resolveNavigationUrl(url)
+    val safeUrl = if (resolved == null) {
       null
     } else {
-      val lower = trimmed.lowercase()
-      if (com.openclaw.assistant.shared.utils.NetworkUtils.isUrlSecure(trimmed) ||
+      val lower = resolved.lowercase()
+      if (com.openclaw.assistant.shared.utils.NetworkUtils.isUrlSecure(resolved) ||
           lower.startsWith("file:///android_asset/")) {
-        trimmed
+        resolved
       } else {
-        Log.w("OpenClawCanvas", "Blocked unsafe navigation URL: $trimmed")
+        Log.w("OpenClawCanvas", "Blocked unsafe navigation URL: $resolved")
         null
       }
     }
     this.url = safeUrl
     _isDefaultState.value = this.url == null
     if (this.url != null) _isPageLoading.value = true
+    _visibilityRequests.tryEmit(true)
     reload()
+  }
+
+  fun hide() {
+    _visibilityRequests.tryEmit(false)
   }
 
   fun currentUrl(): String? = url
@@ -147,6 +201,10 @@ class CanvasController {
     _isPageLoading.value = false
     applyDebugStatus()
     applyHomeCanvasState()
+  }
+
+  fun onPageError() {
+    _isPageLoading.value = false
   }
 
   fun updateHomeCanvasState(json: String?) {

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>OpenClaw Canvas</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #27324a, #0b1020 45%, #070a12); color: #eef3ff; }
+    main { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 28px; }
+    .card { width: min(760px, 100%); border: 1px solid rgba(255,255,255,.14); border-radius: 28px; padding: 28px; background: rgba(13, 20, 38, .78); box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(18px); }
+    .eyebrow { color: #8bd3ff; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
+    h1 { margin: 12px 0 10px; font-size: clamp(32px, 8vw, 64px); line-height: .95; }
+    p { margin: 0; color: #b9c4d8; font-size: 17px; line-height: 1.55; }
+    .state { margin-top: 22px; padding: 16px; border-radius: 18px; background: rgba(255,255,255,.08); color: #dce7ff; white-space: pre-wrap; }
+    .status { margin-top: 18px; display: none; gap: 10px; align-items: center; color: #b9c4d8; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #63e6be; box-shadow: 0 0 20px #63e6be; }
+    .status[data-visible="true"] { display: flex; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <div class="eyebrow">OpenClaw Canvas</div>
+      <h1>Canvas ready</h1>
+      <p>Ask OpenClaw what to show. Canvas tools can render pages, update this surface, or navigate to a secure URL.</p>
+      <div id="homeState" class="state">No canvas content yet.</div>
+      <div id="debugStatus" class="status"><span class="dot"></span><span id="debugStatusText">Ready</span></div>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const homeState = document.getElementById('homeState');
+      const debugStatus = document.getElementById('debugStatus');
+      const debugStatusText = document.getElementById('debugStatusText');
+      let debugEnabled = false;
+      globalThis.__openclaw = Object.assign(globalThis.__openclaw || {}, {
+        setHomeCanvasState(value) {
+          if (!value) { homeState.textContent = 'No canvas content yet.'; return; }
+          try {
+            const parsed = JSON.parse(value);
+            homeState.textContent = typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2);
+          } catch (_) {
+            homeState.textContent = String(value);
+          }
+        },
+        setDebugStatusEnabled(enabled) {
+          debugEnabled = !!enabled;
+          debugStatus.dataset.visible = debugEnabled ? 'true' : 'false';
+        },
+        setStatus(title, subtitle) {
+          const parts = [title, subtitle].filter(Boolean);
+          debugStatusText.textContent = parts.length ? parts.join(' · ') : 'Ready';
+          debugStatus.dataset.visible = debugEnabled ? 'true' : 'false';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -456,7 +456,12 @@ class NodeRuntime(context: Context) {
 
   private suspend fun refreshNodeCanvasCapabilityAndNavigate() {
     nodeSession.refreshNodeCanvasCapability()
+    refreshCanvasSurfaceUrl()
     maybeNavigateToA2uiOnConnect()
+  }
+
+  private fun refreshCanvasSurfaceUrl() {
+    canvas.setCanvasSurfaceUrl(nodeSession.currentCanvasHostUrl() ?: operatorSession.currentCanvasHostUrl())
   }
 
   private fun maybeNavigateToA2uiOnConnect() {
@@ -564,6 +569,29 @@ class NodeRuntime(context: Context) {
         seedLastDiscoveredGateway(list)
         autoConnectIfNeeded()
       }
+    }
+
+    scope.launch {
+      combine(
+        manualHost,
+        manualPort,
+        manualTls,
+        gatewayToken,
+      ) { host: String, port: Int, tls: Boolean, token: String ->
+        val cleanHost = host.trim()
+          .removePrefix("https://")
+          .removePrefix("http://")
+          .removeSuffix("/")
+        val origin = if (cleanHost.isNotBlank() && port in 1..65535) {
+          "${if (tls) "https" else "http"}://$cleanHost:$port"
+        } else {
+          null
+        }
+        origin to token.trim()
+      }.distinctUntilChanged()
+        .collect { (origin, token) ->
+          canvas.setGatewayAuth(origin, token)
+        }
     }
 
     scope.launch {

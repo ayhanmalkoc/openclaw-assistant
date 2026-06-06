@@ -475,7 +475,7 @@ fun MainNavHost(
                     AppTab.Terminal.route -> AppTab.Terminal
                     AppTab.Cron.route     -> AppTab.Cron
                     "bridge"              -> AppTab.Settings
-                    AppTab.Canvas.route   -> AppTab.Home
+                    AppTab.Canvas.route   -> AppTab.Canvas
                     AppTab.Settings.route -> AppTab.Settings
                     else                  -> AppTab.Home
                 }
@@ -497,8 +497,13 @@ fun MainNavHost(
     LaunchedEffect(chatRefreshTrigger) {
         sessionListViewModel.refreshSessions()
     }
+    LaunchedEffect(nodeRuntime.canvas) {
+        nodeRuntime.canvas.visibilityRequests.collect { visible ->
+            selectedTab = if (visible) AppTab.Canvas else AppTab.Home
+        }
+    }
     LaunchedEffect(availableTabs, selectedTab) {
-        if (selectedTab !in availableTabs) {
+        if (selectedTab !in availableTabs && selectedTab != AppTab.Canvas) {
             selectedTab = AppTab.Home
         }
     }
@@ -525,6 +530,7 @@ fun MainNavHost(
                     missingPermissions   = missingPermissions,
                     allPermissionsStatus = allPermissionsStatus,
                     onOpenSettings       = { selectedTab = AppTab.Settings },
+                    onOpenCanvas         = { selectedTab = AppTab.Canvas },
                     onOpenAssistantSettings = onOpenAssistantSettings,
                     onRefreshDiagnostics = onRefreshDiagnostics,
                     onRequestPermissions = onRequestPermissions,
@@ -619,6 +625,7 @@ fun MainScreen(
     missingPermissions: List<PermissionInfo> = emptyList(),
     allPermissionsStatus: List<PermissionStatusInfo> = emptyList(),
     onOpenSettings: () -> Unit,
+    onOpenCanvas: () -> Unit,
     onOpenAssistantSettings: () -> Unit,
     onRefreshDiagnostics: () -> Unit,
     onRequestPermissions: (List<String>) -> Unit = {},
@@ -754,6 +761,25 @@ fun MainScreen(
                 openClawStatusText = displayStatusText,
                 onOpenClawTest = { runtime.connectManual() },
             )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onOpenCanvas,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.Default.Brush, contentDescription = null)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Canvas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Open the live canvas surface", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null)
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
             // Show alert if missing scope error is present
             if (missingScopeError != null) {
