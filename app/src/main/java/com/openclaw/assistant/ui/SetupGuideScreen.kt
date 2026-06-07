@@ -1428,7 +1428,9 @@ private fun HermesFinalStep(onFinish: () -> Unit) {
 
 
     LaunchedEffect(isGatewayConnected, gatewayChatReady, requiredBackendIds, primaryBackend) {
-        if (!autoTestStarted && !isTesting && !verified && primaryBackend != null && requiredBackendIds.isNotEmpty() && (isGatewayConnected || gatewayChatReady)) {
+        val hasOpenClawGateway = requiredBackends.any { it.type == BackendType.OPENCLAW_GATEWAY }
+        val canStartAutoTest = if (hasOpenClawGateway) isGatewayConnected || gatewayChatReady else true
+        if (!autoTestStarted && !isTesting && !verified && primaryBackend != null && requiredBackendIds.isNotEmpty() && canStartAutoTest) {
             autoTestStarted = true
             runEndToEndTest()
         }
