@@ -203,8 +203,53 @@ def wait_for_http_url(url: str, timeout_seconds: float = 35.0) -> bool:
     return False
 
 
-def discover_dashboard_terminal(local_url: str = "http://127.0.0.1:9119") -> Optional[dict]:
+def dashboard_candidate_urls(no_tailscale: bool = False, no_lan: bool = False, port: int = 9119) -> List[str]:
+    """Return local/VPN/LAN dashboard URLs to probe, preserving reachable-phone preference."""
+    urls: List[str] = []
+
+    def add(host: Optional[str]) -> None:
+        if not host:
+            return
+        url = f"http://{host}:{port}"
+        if url not in urls:
+            urls.append(url)
+
+    add("127.0.0.1")
+    if not no_tailscale:
+        add(tailscale_dns_name())
+        add(tailscale_ip())
+    if not no_lan:
+        add(first_lan_ip())
+    return urls
+
+
+def any_dashboard_port_open(no_tailscale: bool = False, no_lan: bool = False, port: int = 9119) -> bool:
+    return any(
+        is_port_open(urllib.parse.urlparse(url).hostname or "", port, timeout=0.5)
+        for url in dashboard_candidate_urls(no_tailscale, no_lan, port)
+    )
+
+
+def discover_dashboard_terminal(
+    local_url: str = "http://127.0.0.1:9119",
+    candidate_urls: Optional[List[str]] = None,
+) -> Optional[dict]:
     """Return Hermes dashboard terminal pairing data when `dashboard --tui` is running."""
+    urls = candidate_urls or [local_url]
+    terminal_disabled = False
+    for candidate_url in urls:
+        discover_dashboard_terminal_at.terminal_disabled = False
+        terminal = discover_dashboard_terminal_at(candidate_url)
+        if terminal:
+            return terminal
+        if getattr(discover_dashboard_terminal_at, "terminal_disabled", False):
+            terminal_disabled = True
+    if terminal_disabled:
+        print("Hermes dashboard is running, but Terminal is disabled. Start it with `hermes dashboard --tui`.", file=sys.stderr)
+    return None
+
+
+def discover_dashboard_terminal_at(local_url: str) -> Optional[dict]:
     try:
         with urllib.request.urlopen(local_url.rstrip("/") + "/", timeout=2.0) as response:
             html = response.read().decode("utf-8", errors="replace")
@@ -215,7 +260,7 @@ def discover_dashboard_terminal(local_url: str = "http://127.0.0.1:9119") -> Opt
     if not token_match:
         return None
     if tui_match and tui_match.group(1) != "true":
-        print("Hermes dashboard is running, but Terminal is disabled. Start it with `hermes dashboard --tui`.", file=sys.stderr)
+        discover_dashboard_terminal_at.terminal_disabled = True
         return None
     return {"url": normalize_url(local_url), "token": token_match.group(1)}
 
@@ -1674,7 +1719,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     openclaw_installed = bool(shutil.which("openclaw"))
     tailscale_installed = bool(tailscale_cmd())
     hermes_port_open = is_port_open("127.0.0.1", 8642)
-    dashboard_port_open = is_port_open("127.0.0.1", 9119)
+    dashboard_port_open = any_dashboard_port_open(args.no_tailscale, args.no_lan)
     openclaw_port_open = is_port_open("127.0.0.1", 18789)
     hermes_key = args.key or discover_hermes_key()
     hermes_model = args.model or discover_hermes_model() or "default"
@@ -1729,7 +1774,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     hermes_urls: List[str] = []
     hermes_public_url: Optional[str] = None
-    terminal_pairing: Optional[dict] = discover_dashboard_terminal() if include_hermes and dashboard_port_open else None
+    terminal_pairing: Optional[dict] = (
+        discover_dashboard_terminal(candidate_urls=dashboard_candidate_urls(args.no_tailscale, args.no_lan))
+        if include_hermes and dashboard_port_open
+        else None
+    )
     terminal_bind_host = "0.0.0.0" if include_tailscale or not args.no_lan else "127.0.0.1"
     terminal_command_pairing: Optional[dict] = (
         start_terminal_command_server(bind_host=terminal_bind_host)
